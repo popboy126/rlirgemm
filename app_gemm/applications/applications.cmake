@@ -1,0 +1,8 @@
+option(ENABLE_TVM "Enable the externally supplied TVM integration" OFF)
+option(ENABLE_MLC_LLM "Enable the externally supplied MLC LLM integration" OFF)
+if(ENABLE_TVM)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/applications/tvm/tvm.cmake")
+endif()
+if(ENABLE_MLC_LLM)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/applications/mlc-llm/mlc-llm.cmake")
+endif()

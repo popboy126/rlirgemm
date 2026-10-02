@@ -1,0 +1,189 @@
+/*
+ * Test Code for GEMM Kernel
+ * 测试采用外积算法且三个按行优先存储的矩阵乘法内核
+ * Function: {{ function_name }}
+ * Platform: {{ platform }}
+ * Instruction Set: {{ instruction_set }}
+ */
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <cmath>
+#include <iomanip>
+#include "{{ header_file }}"
+
+using namespace std;
+
+// 朴素GEMM实现(用于正确性验证)
+void naive_gemm(int m, int n, int k,
+                {{ data_type }} alpha,
+                const {{ data_type }}* a, int lda,
+                const {{ data_type }}* b, int ldb,
+                {{ data_type }} beta,
+                {{ data_type }}* c, int ldc) {
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
+            {{ data_type }} sum = 0.0;
+            for (int p = 0; p < k; p++) {
+                sum += a[i * lda + p] * b[p * ldb + j];
+            }
+            c[i * ldc + j] = alpha * sum + beta * c[i * ldc + j];
+        }
+    }
+}
+
+// 初始化矩阵
+void init_matrix({{ data_type }}* mat, int rows, int cols, int seed = 42) {
+    mt19937 gen(seed);
+    uniform_real_distribution<{{ data_type }}> dis(-1.0, 1.0);
+
+    for (int i = 0; i < rows * cols; i++) {
+        mat[i] = dis(gen);
+    }
+}
+
+// 比较两个矩阵
+bool compare_matrices(const {{ data_type }}* a, const {{ data_type }}* b,
+                     int m, int n, int lda, int ldb,
+                     {{ data_type }} tolerance = 1e-4) {
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
+            {{ data_type }} diff = fabs(a[i * lda + j] - b[i * ldb + j]);
+            if (diff > tolerance) {
+                cout << "Mismatch at (" << i << "," << j << "): "
+                     << a[i * lda + j] << " vs " << b[i * ldb + j]
+                     << " (diff: " << diff << ")" << endl;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// 性能测试
+double benchmark_kernel(int m, int n, int k,
+                       {{ data_type }} alpha,
+                       const {{ data_type }}* a, int lda,
+                       const {{ data_type }}* b, int ldb,
+                       {{ data_type }} beta,
+                       {{ data_type }}* c, int ldc,
+                       int iterations = 100) {
+    gemm_prefetch_config_t config = GEMM_PREFETCH_CONFIG(
+        GEMM_DEFAULT_C_PREFETCH_STRIDE,
+        GEMM_DEFAULT_A_PREFETCH_STRIDE,
+        GEMM_DEFAULT_B_PREFETCH_STRIDE
+    );
+
+    // 预热
+    for (int i = 0; i < 10; i++) {
+        {{ function_name }}(m, n, k, &alpha, a, lda, b, ldb, &beta, c, ldc, &config);
+    }
+
+    // 测量
+    auto start = chrono::high_resolution_clock::now();
+    for (int i = 0; i < iterations; i++) {
+        {{ function_name }}(m, n, k, &alpha, a, lda, b, ldb, &beta, c, ldc, &config);
+    }
+    auto end = chrono::high_resolution_clock::now();
+
+    double elapsed = chrono::duration<double>(end - start).count();
+    return elapsed / iterations;
+}
+
+int main() {
+    cout << "========================================" << endl;
+    cout << "GEMM Kernel Test" << endl;
+    cout << "========================================" << endl;
+    cout << "Function: {{ function_name }}" << endl;
+    cout << "Platform: {{ platform }}" << endl;
+    cout << "Instruction Set: {{ instruction_set }}" << endl;
+    cout << "Block Size: mr={{ mr }}, nr={{ nr }}, kr={{ kr }}" << endl;
+    cout << "========================================" << endl << endl;
+
+    // 测试配置
+    vector<tuple<int, int, int>> test_cases = {
+        {64, 64, 64},
+        {128, 128, 128},
+        {256, 256, 256},
+        {{ '{' }}{{ mr }}, {{ nr }}, {{ kr }}{{ '}' }},  // 恰好一个block
+        {{ '{' }}{{ mr*2 }}, {{ nr*2 }}, {{ kr*2 }}{{ '}' }},  // 多个blocks
+        {100, 100, 100},  // 非对齐尺寸
+    };
+
+    {{ data_type }} alpha = 1.0;
+    {{ data_type }} beta = 0.0;
+
+    bool all_passed = true;
+
+    for (auto& [m, n, k, a_prefetch_stride] : test_cases) {
+        cout << "Testing M=" << m << ", N=" << n << ", K=" << k << endl;
+
+        // 分配内存
+        vector<{{ data_type }}> a(m * k);
+        vector<{{ data_type }}> b(k * n);
+        vector<{{ data_type }}> c_ref(m * n, 0.0);
+        vector<{{ data_type }}> c_test(m * n, 0.0);
+
+        // 初始化
+        init_matrix(a.data(), m, k);
+        init_matrix(b.data(), k, n);
+
+        // 参考实现
+        naive_gemm(m, n, k, alpha, a.data(), k, b.data(), n, beta, c_ref.data(), n);
+
+        // 内核实现
+        gemm_prefetch_config_t config = GEMM_PREFETCH_CONFIG(
+            GEMM_DEFAULT_C_PREFETCH_STRIDE,
+            GEMM_DEFAULT_A_PREFETCH_STRIDE,
+            GEMM_DEFAULT_B_PREFETCH_STRIDE
+        );
+
+        {{ function_name }}(m, n, k, &alpha, a.data(), k, b.data(), n,
+                         &beta, c_test.data(), n, &config);
+
+        // 验证正确性
+        bool passed = compare_matrices(c_ref.data(), c_test.data(), m, n, n, n);
+
+        if (passed) {
+            cout << "  ✓ 正确性测试通过" << endl;
+
+            // 性能测试
+            double time = benchmark_kernel(m, n, k, alpha, a.data(), k,
+                                         b.data(), n, beta, c_test.data(), n);
+
+            double gflops = (2.0 * m * n * k) / (time * 1e9);
+            cout << "  Performance: " << fixed << setprecision(2)
+                 << time * 1000 << " ms, "
+                 << gflops << " GFLOPS" << endl;
+        } else {
+            cout << "  ✗ 正确性测试失败" << endl;
+            all_passed = false;
+        }
+        cout << endl;
+    }
+
+    // 显示内核配置
+    const gemm_kernel_config_t* config = get_{{ function_name }}_config();
+    cout << "========================================" << endl;
+    cout << "Kernel Configuration:" << endl;
+    cout << "  Platform: " << config->platform << endl;
+    cout << "  Instruction Set: " << config->instruction_set << endl;
+    cout << "  Data Type: " << config->data_type << endl;
+    cout << "  Block Size: mr=" << config->mr << ", nr=" << config->nr
+         << ", kr=" << config->kr << endl;
+    cout << "  Alpha Support: " << (config->supports_alpha ? "Yes" : "No") << endl;
+    cout << "  Beta Support: " << (config->supports_beta ? "Yes" : "No") << endl;
+    cout << "  Vector Registers Used: " << config->vector_registers_used << endl;
+    cout << "  General Registers Used: " << config->general_registers_used << endl;
+    cout << "========================================" << endl;
+
+    if (all_passed) {
+        cout << "\n所有测试通过! ✓" << endl;
+        return 0;
+    } else {
+        cout << "\n部分测试失败! ✗" << endl;
+        return 1;
+    }
+}

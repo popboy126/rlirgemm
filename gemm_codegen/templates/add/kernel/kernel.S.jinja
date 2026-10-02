@@ -1,0 +1,154 @@
+/**
+* 目标平台: {{ KernelInfo["platform"] }}, 指令集: {{ KernelInfo["instruction_set"] }}, 矩阵元素数据类型: {{ KernelInfo["data_type"] }}
+* 内核大小: mr={{KernelInfo["mr"]}}, kr={{KernelInfo["kr"]}}, nr={{KernelInfo["nr"]}}
+* 矩阵C和部分和的布局: {{ KernelInfo["layout"] }}
+* 矩阵C预取策略: {{ KernelInfo["c_prefetch"] }}, 部分和预取策略: {{ KernelInfo["partial_sum_prefetch"] }}
+* 边界核优化支持: {{ "是" if KernelInfo["support_edge_opt"] else "否" }}{% if KernelInfo["edge_shapes"] %}
+
+    * 计算核列表(总计: {{ KernelInfo["edge_shape_num"] }}): {{ KernelInfo["edge_shapes"] }} {% endif %}
+
+* 支持通用寄存器溢出: {{ "是" if KernelInfo["support_reg_spill"] else "否" }}
+* 向量寄存器重用间隔: {{ KernelInfo["vec_reg_reuse_interval"] }}
+
+* 寄存器分配情况:
+{% for name, reg in RegisterAllocation %}
+    * {{ name }} -->  {{ reg }}
+{% endfor %}
+*
+* */
+
+#ifdef {{ KernelInfo["platform_macro"] }}
+#ifdef {{ KernelInfo["instruction_set_macro"] }}
+
+//#pragma GCC push_options
+//#pragma GCC optimize ("O0")
+.text;
+.p2align 2;
+//.optimize "O0";
+.global {{ KernelInfo["function_name"] }};
+.type {{ KernelInfo["function_name"] }}, %function;
+
+
+.macro PROLOGUE
+{% for inst in prologue %}
+    {{ inst }}
+{% endfor %}
+.endm
+
+.macro EPILOGUE
+{% for inst in epilogue %}
+    {{ inst }}
+{% endfor %}
+.endm
+
+{% for loop_logic_name, loop_logic in main_loop.items()  %}
+
+{% if loop_logic and loop_logic["kernel_compute"] %}
+    // 内核计算开始
+    {% for macro in  loop_logic["kernel_compute"] %}
+.macro {{ macro.name }}
+        {% for inst in macro.instructions %}
+{{ inst }}
+        {% endfor %}
+.endm
+
+    {% endfor %}
+    // 内核计算结束
+{% endif %}
+
+{% if loop_logic and loop_logic["load_c"] %}
+// 装载C开始
+    {% for macro in  loop_logic["load_c"] %}
+.macro {{ macro.name }}
+        {% for inst in macro.instructions %}
+{{ inst }}
+        {% endfor %}
+.endm
+
+    {% endfor %}
+// 装载矩阵C结束
+{% endif %}
+
+{% if loop_logic and loop_logic["store_c"] %}
+    // 存储C开始
+    {% for macro in  loop_logic["store_c"] %}
+.macro {{ macro.name }}
+        {% for inst in macro.instructions %}
+{{ inst }}
+        {% endfor %}
+.endm
+
+    {% endfor %}
+    // 存储矩阵C结束
+{% endif %}
+
+
+{% if loop_logic and loop_logic["main_loop_k"] %}
+// K维度的循环处理开始
+    {% for macro in  loop_logic["main_loop_k"] %}
+.macro {{ macro.name }}
+        {% for inst in macro.instructions %}
+{{ inst }}
+        {% endfor %}
+.endm
+
+    {% endfor %}
+// K维度的循环处理结束
+{% endif %}
+
+
+{% if loop_logic and loop_logic["main_loop_n"] %}
+// N维度的循环处理开始
+    {% for macro in  loop_logic["main_loop_n"] %}
+.macro {{ macro.name }}
+        {% for inst in macro.instructions %}
+{{ inst }}
+        {% endfor %}
+.endm
+
+    {% endfor %}
+// N维度的循环处理结束
+{% endif %}
+
+.macro {{ loop_logic_name }}
+{% if loop_logic and loop_logic["main_loop_m"] %}
+    {% for inst in loop_logic["main_loop_m"] %}
+{{ inst }}
+    {% endfor %}
+{% endif %}
+.endm
+
+{% endfor %}
+
+// 调度器宏定义, 用于判断alpha和beta的值, 确定需要执行的累加主循环
+.macro MAIN_LOOP_SCHEDULER
+{% if main_loop_scheduler %}
+    {% for inst in main_loop_scheduler %}
+{{ inst }}
+    {% endfor %}
+{% endif %}
+.endm
+
+
+{{ KernelInfo["function_name"] }}:
+    PROLOGUE
+
+    MAIN_LOOP_SCHEDULER
+
+EPILOGUE_START:
+    EPILOGUE
+    ret
+
+.size {{ function_name }}, .-{{ function_name }}
+//#pragma GCC pop_options
+
+#endif // {{ KernelInfo["instruction_set_macro"] }}
+#endif // {{ KernelInfo["platform_macro"] }}
+
+{% if c_header %}
+    /** 头文件中的函数声明
+
+    {{ c_header }}
+
+    */
+{% endif %}

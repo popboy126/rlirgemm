@@ -1,0 +1,11 @@
+
+
+set(ADD_KERNELS_ARM_NEON_HOME "${ADD_KERNELS_ARM_HOME}/neon")
+
+set(ADD_KERNELS_ARM_NEON_IMPLEMENTATIONS
+        "${ADD_KERNELS_ARM_NEON_HOME}/add_kernel_arm_neon_fp32_r_mr2_nr16_kr2.S"
+)
+
+set(ADD_KERNELS_ARM_NEON_IMPLEMENTATIONS_FOR_TESTS
+        "${ADD_KERNELS_ARM_NEON_HOME}/add_kernel_arm_neon_fp32_r_mr2_nr16_kr2.S"
+)

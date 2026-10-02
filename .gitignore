@@ -1,0 +1,11 @@
+build/
+cmake-build-*/
+output/
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+*.pth
+tensorboards/
+results/
+*.sqlite3
